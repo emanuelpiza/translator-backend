@@ -76,6 +76,8 @@ const {PassThrough} = require('stream');
 
 function createRecognitionStream(ws, targetLanguage) {
   const audioStream = new PassThrough();
+  console.log('🚀 createRecognitionStream - Target language:', targetLanguage);
+
 
   const request = {
     config: {
@@ -135,6 +137,7 @@ async function synthesizeSpeech(text, languageCode) {
 }
 
 async function translateText(text, targetLanguage) {
+  console.log('🧠 Translating:', text, '=>', targetLanguage);
   try {
     const [translation] = await translateClient.translate(text, targetLanguage);
     return translation;
