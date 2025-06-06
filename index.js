@@ -79,7 +79,6 @@ function createRecognitionStream(ws, targetLanguage) {
     .streamingRecognize()
     .on('error', (err) => {
       console.error('🛑 Recognition Error:', err.message);
-      console.error(err);
       ws.send(JSON.stringify({ event: 'error', message: `Recognition service error: ${err.message}` }));
     })
     .on('data', async (data) => {
@@ -110,20 +109,21 @@ function createRecognitionStream(ws, targetLanguage) {
       }
     });
 
-  // Enviar primeiro pacote com config
-stream.write({
-  config: {
-    encoding: 'LINEAR16',
-    sampleRateHertz: 16000,
-    languageCode: SOURCE_LANGUAGE_CODE,
-    enableAutomaticPunctuation: true,
-    model: 'default'
-  },
-  interimResults: false
-});
+  // ✅ Pacote inicial com configuração correta (exato!)
+  stream.write({
+    config: {
+      encoding: 'LINEAR16',
+      sampleRateHertz: 16000,
+      languageCode: SOURCE_LANGUAGE_CODE,
+      enableAutomaticPunctuation: true,
+      model: 'default'
+    },
+    interimResults: false
+  });
 
   return stream;
 }
+
 
 async function synthesizeSpeech(text, languageCode) {
   try {
