@@ -36,7 +36,7 @@ wss.on('connection', ws => {
       case 'audio':
         try {
           if (recognizeStream && !recognizeStream.destroyed && typeof msg.data === 'object') {
-            recognizeStream.write(msg.data);
+            recognizeStream.write({ audio_content: msg.data });
           } else {
             console.warn('⚠️ Tried to write to a destroyed or nonexistent stream.');
           }
