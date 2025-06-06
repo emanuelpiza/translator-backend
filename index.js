@@ -72,15 +72,30 @@ wss.on('connection', ws => {
   });
 });
 
+const {PassThrough} = require('stream');
+
 function createRecognitionStream(ws, targetLanguage) {
+  const audioStream = new PassThrough();
+
+  const request = {
+    config: {
+      encoding: 'LINEAR16',
+      sampleRateHertz: 16000,
+      languageCode: SOURCE_LANGUAGE_CODE,
+      enableAutomaticPunctuation: true,
+      model: 'default',
+    },
+    interimResults: false,
+  };
+
   const stream = speechClient
-    .streamingRecognize()
+    .streamingRecognize(request)
     .on('error', (err) => {
       console.error('🛑 Recognition Error:', err.message);
-      ws.send(JSON.stringify({ event: 'error', message: `Recognition service error: ${err.message}` }));
+      ws.send(JSON.stringify({ event: 'error', message: `Recognition error: ${err.message}` }));
     })
     .on('data', async (data) => {
-      if (data.results[0] && data.results[0].isFinal) {
+      if (data.results[0]?.isFinal) {
         const transcript = data.results[0].alternatives[0].transcript;
         console.log(`🎤 Transcript: ${transcript}`);
 
@@ -88,38 +103,19 @@ function createRecognitionStream(ws, targetLanguage) {
           const translation = await translateText(transcript, targetLanguage);
           console.log(`🌐 Translation: ${translation}`);
 
-          const sourceAudio = await synthesizeSpeech(transcript, SOURCE_LANGUAGE_CODE);
-          if (sourceAudio) {
-            ws.send(JSON.stringify({ event: 'audio', data: sourceAudio.toString('base64') }));
-          }
-
           const translatedAudio = await synthesizeSpeech(translation, targetLanguage);
           if (translatedAudio) {
-            setTimeout(() => {
-              ws.send(JSON.stringify({ event: 'audio', data: translatedAudio.toString('base64') }));
-            }, 200);
+            ws.send(JSON.stringify({ event: 'audio', data: translatedAudio.toString('base64') }));
           }
-
         } catch (err) {
           console.error('🔥 Translation or TTS Error:', err.message);
-          ws.send(JSON.stringify({ event: 'error', message: `Translation or TTS error: ${err.message}` }));
         }
       }
     });
 
-  // ✅ Pacote inicial com configuração correta (exato!)
-  stream.write({
-    config: {
-      encoding: 'LINEAR16',
-      sampleRateHertz: 16000,
-      languageCode: SOURCE_LANGUAGE_CODE,
-      enableAutomaticPunctuation: true,
-      model: 'default'
-    },
-    interimResults: false
-  });
+  audioStream.pipe(stream);
 
-  return stream;
+  return audioStream;
 }
 
 
