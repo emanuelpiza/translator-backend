@@ -175,6 +175,8 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 const PORT = process.env.PORT || 3000;
+console.log('🚀 About to start server...');
 server.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+  console.log(`✅ Server listening on port ${PORT}`);
 });
+
