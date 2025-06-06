@@ -76,16 +76,58 @@ wss.on('connection', ws => {
 });
 
 function createRecognitionStream(ws, targetLanguage) {
-  const request = {
-    config: {
-      encoding: 'LINEAR16',
-      sampleRateHertz: 16000,
-      languageCode: SOURCE_LANGUAGE_CODE,
-      enableAutomaticPunctuation: true,
-      model: 'default'
-    },
-    interimResults: false,
-  };
+  const stream = speechClient
+    .streamingRecognize()
+    .on('error', (err) => {
+      console.error('🛑 Recognition Error:', err.message);
+      console.error(err);
+      ws.send(JSON.stringify({ event: 'error', message: `Recognition service error: ${err.message}` }));
+    })
+    .on('data', async (data) => {
+      if (data.results[0] && data.results[0].isFinal) {
+        const transcript = data.results[0].alternatives[0].transcript;
+        console.log(`🎤 Transcript: ${transcript}`);
+
+        try {
+          const translation = await translateText(transcript, targetLanguage);
+          console.log(`🌐 Translation: ${translation}`);
+
+          const sourceAudio = await synthesizeSpeech(transcript, SOURCE_LANGUAGE_CODE);
+          if (sourceAudio) {
+            ws.send(JSON.stringify({ event: 'audio', data: sourceAudio.toString('base64') }));
+          }
+
+          const translatedAudio = await synthesizeSpeech(translation, targetLanguage);
+          if (translatedAudio) {
+            setTimeout(() => {
+              ws.send(JSON.stringify({ event: 'audio', data: translatedAudio.toString('base64') }));
+            }, 200);
+          }
+
+        } catch (err) {
+          console.error('🔥 Translation or TTS Error:', err.message);
+          ws.send(JSON.stringify({ event: 'error', message: `Translation or TTS error: ${err.message}` }));
+        }
+      }
+    });
+
+  // ✅ Enviar pacote de config explicitamente
+  stream.write({
+    streamingConfig: {
+      config: {
+        encoding: 'LINEAR16',
+        sampleRateHertz: 16000,
+        languageCode: SOURCE_LANGUAGE_CODE,
+        enableAutomaticPunctuation: true,
+        model: 'default'
+      },
+      interimResults: false,
+    }
+  });
+
+  return stream;
+}
+
 
   const stream = speechClient
     .streamingRecognize(request)
