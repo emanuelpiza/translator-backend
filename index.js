@@ -33,21 +33,19 @@ wss.on('connection', ws => {
         recognizeStream = createRecognitionStream(ws, msg.targetLanguage);
         break;
 
-      case 'audio':
-        try {
-          if (recognizeStream && !recognizeStream.destroyed && msg.data) {
-            const audioBuffer = Buffer.isBuffer(msg.data)
-              ? msg.data
-              : Buffer.from(msg.data.data || msg.data);
-      
-            recognizeStream.write({ audio_content: audioBuffer });
-          } else {
-            console.warn('⚠️ Tried to write to a destroyed or nonexistent stream.');
+        case 'audio':
+          try {
+            if (recognizeStream && !recognizeStream.destroyed && msg.data) {
+              const audioBuffer = Buffer.from(msg.data, 'base64'); // <== agora é base64
+              recognizeStream.write({ audio_content: audioBuffer });
+            } else {
+              console.warn('⚠️ Tried to write to a destroyed or nonexistent stream.');
+            }
+          } catch (err) {
+            console.error('❌ Error writing to recognition stream:', err.message);
           }
-        } catch (err) {
-          console.error('❌ Error writing to recognition stream:', err.message);
-        }
-        break;
+          break;
+
 
       case 'stop':
         console.log('🛑 Stopping stream');
