@@ -33,19 +33,18 @@ wss.on('connection', ws => {
         recognizeStream = createRecognitionStream(ws, msg.targetLanguage);
         break;
 
-        case 'audio':
-          try {
-            if (recognizeStream && !recognizeStream.destroyed && msg.data) {
-              const audioBuffer = Buffer.from(msg.data, 'base64'); // <== agora é base64
-              recognizeStream.write({ audio_content: audioBuffer });
-            } else {
-              console.warn('⚠️ Tried to write to a destroyed or nonexistent stream.');
-            }
-          } catch (err) {
-            console.error('❌ Error writing to recognition stream:', err.message);
+      case 'audio':
+        try {
+          if (recognizeStream && !recognizeStream.destroyed && msg.data) {
+            const audioBuffer = Buffer.from(msg.data, 'base64');
+            recognizeStream.write({ audio_content: audioBuffer });
+          } else {
+            console.warn('⚠️ Tried to write to a destroyed or nonexistent stream.');
           }
-          break;
-
+        } catch (err) {
+          console.error('❌ Error writing to recognition stream:', err.message);
+        }
+        break;
 
       case 'stop':
         console.log('🛑 Stopping stream');
@@ -111,7 +110,7 @@ function createRecognitionStream(ws, targetLanguage) {
       }
     });
 
-  // ✅ Enviar pacote de config explicitamente
+  // Enviar primeiro pacote com config
   stream.write({
     streamingConfig: {
       config: {
@@ -124,46 +123,6 @@ function createRecognitionStream(ws, targetLanguage) {
       interimResults: false,
     }
   });
-
-  return stream;
-}
-
-
-  const stream = speechClient
-    .streamingRecognize(request)
-    .on('error', (err) => {
-      console.error('🛑 Recognition Error:', err.message);
-      console.error(err);
-      ws.send(JSON.stringify({ event: 'error', message: `Recognition service error: ${err.message}` }));
-    })
-    .on('data', async (data) => {
-      if (data.results[0] && data.results[0].isFinal) {
-        const transcript = data.results[0].alternatives[0].transcript;
-        console.log(`🎤 Transcript: ${transcript}`);
-
-        try {
-          const translation = await translateText(transcript, targetLanguage);
-          console.log(`🌐 Translation: ${translation}`);
-
-          const sourceAudio = await synthesizeSpeech(transcript, SOURCE_LANGUAGE_CODE);
-          if (sourceAudio) {
-            ws.send(JSON.stringify({ event: 'audio', data: sourceAudio.toString('base64') }));
-          }
-
-          const translatedAudio = await synthesizeSpeech(translation, targetLanguage);
-          if (translatedAudio) {
-            setTimeout(() => {
-              ws.send(JSON.stringify({ event: 'audio', data: translatedAudio.toString('base64') }));
-            }, 200);
-          }
-
-        } catch (err) {
-          console.error('🔥 Translation or TTS Error:', err.message);
-          console.error(err);
-          ws.send(JSON.stringify({ event: 'error', message: `Translation or TTS error: ${err.message}` }));
-        }
-      }
-    });
 
   return stream;
 }
