@@ -20,18 +20,17 @@ wss.on('connection', ws => {
     const msg = JSON.parse(message);
 
     switch (msg.event) {
-      case 'start':
-        console.log(`🎙️ Starting stream for target language: ${msg.targetLanguage}`);
-        if (recognizeStream && !recognizeStream.destroyed) {
-          try {
-            recognizeStream.end();
-            recognizeStream.destroy();
-          } catch (err) {
-            console.warn('⚠️ Error while ending previous stream:', err.message);
-          }
-        }
-        recognizeStream = createRecognitionStream(ws, msg.targetLanguage);
-        break;
+        case 'start':
+            console.log(`🎙️ Starting stream for target language: ${msg.targetLanguage}`);
+          
+            if (recognizeStream) {
+              recognizeStream.destroy();
+              recognizeStream = null;
+            }
+          
+            recognizeStream = createRecognitionStream(ws, msg.targetLanguage);
+            break;
+
 
       case 'audio':
         try {
