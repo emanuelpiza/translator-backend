@@ -17,35 +17,42 @@ wss.on('connection', ws => {
   let recognizeStream = null;
 
   ws.on('message', async (message) => {
-    const msg = JSON.parse(message);
+  const msg = JSON.parse(message);
 
-    switch (msg.event) {
-      case 'start':
-        console.log(`Starting stream for target language: ${msg.targetLanguage}`);
-        if (recognizeStream) recognizeStream.end();
-        recognizeStream = createRecognitionStream(ws, msg.targetLanguage);
-        break;
+  switch (msg.event) {
+    case 'start':
+      console.log(`🎙️ Starting stream for target language: ${msg.targetLanguage}`);
+      if (recognizeStream && !recognizeStream.destroyed) {
+        recognizeStream.end();
+        recognizeStream.destroy();
+      }
+      recognizeStream = createRecognitionStream(ws, msg.targetLanguage);
+      break;
 
-      case 'audio':
-        try {
-          if (recognizeStream && !recognizeStream.destroyed) {
-            recognizeStream.write(msg.data);
-          } else {
-            console.warn('⚠️ Tried to write to destroyed stream.');
-          }
-        } catch (err) {
-          console.error('❌ Error writing to recognition stream:', err.message);
+    case 'audio':
+      try {
+        if (recognizeStream && !recognizeStream.destroyed) {
+          recognizeStream.write(msg.data);
+        } else {
+          console.warn('⚠️ Tried to write to a destroyed stream.');
         }
-        break;
+      } catch (err) {
+        console.error('❌ Error writing to recognition stream:', err.message);
+        console.error(err);
+      }
+      break;
 
+    case 'stop':
+      console.log('🛑 Stopping stream');
+      if (recognizeStream && !recognizeStream.destroyed) {
+        recognizeStream.end();
+        recognizeStream.destroy();
+      }
+      recognizeStream = null;
+      break;
+  }
+});
 
-      case 'stop':
-        console.log('Stopping stream');
-        if (recognizeStream) recognizeStream.end();
-        recognizeStream = null;
-        break;
-    }
-  });
 
   ws.on('close', () => {
     console.log('Client disconnected');
