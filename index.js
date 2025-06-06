@@ -15,7 +15,7 @@ const wss = new WebSocketServer({ noServer: true });
 wss.on('connection', ws => {
   console.log('Client connected');
   let recognizeStream = null;
-  
+
   ws.on('message', async (message) => {
     const msg = JSON.parse(message);
 
@@ -32,7 +32,7 @@ wss.on('connection', ws => {
         }
         recognizeStream = createRecognitionStream(ws, msg.targetLanguage);
         break;
-  
+
       case 'audio':
         try {
           if (recognizeStream && !recognizeStream.destroyed && typeof msg.data === 'object') {
@@ -44,7 +44,7 @@ wss.on('connection', ws => {
           console.error('❌ Error writing to recognition stream:', err.message);
         }
         break;
-  
+
       case 'stop':
         console.log('🛑 Stopping stream');
         if (recognizeStream && !recognizeStream.destroyed) {
@@ -59,7 +59,7 @@ wss.on('connection', ws => {
         break;
     }
   });
-  
+
   ws.on('close', () => {
     console.log('Client disconnected');
     if (recognizeStream && !recognizeStream.destroyed) {
@@ -70,8 +70,8 @@ wss.on('connection', ws => {
         console.warn('⚠️ Error during stream close:', err.message);
       }
     }
+  });
 });
-
 
 function createRecognitionStream(ws, targetLanguage) {
   const request = {
@@ -89,7 +89,7 @@ function createRecognitionStream(ws, targetLanguage) {
     .streamingRecognize(request)
     .on('error', (err) => {
       console.error('🛑 Recognition Error:', err.message);
-      console.error(err); // mostra detalhes técnicos completos
+      console.error(err);
       ws.send(JSON.stringify({ event: 'error', message: `Recognition service error: ${err.message}` }));
     })
     .on('data', async (data) => {
@@ -115,7 +115,7 @@ function createRecognitionStream(ws, targetLanguage) {
 
         } catch (err) {
           console.error('🔥 Translation or TTS Error:', err.message);
-          console.error(err); // mostra stack trace completa
+          console.error(err);
           ws.send(JSON.stringify({ event: 'error', message: `Translation or TTS error: ${err.message}` }));
         }
       }
