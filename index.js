@@ -111,18 +111,16 @@ function createRecognitionStream(ws, targetLanguage) {
     });
 
   // Enviar primeiro pacote com config
-  stream.write({
-    streamingConfig: {
-      config: {
-        encoding: 'LINEAR16',
-        sampleRateHertz: 16000,
-        languageCode: SOURCE_LANGUAGE_CODE,
-        enableAutomaticPunctuation: true,
-        model: 'default'
-      },
-      interimResults: false,
-    }
-  });
+stream.write({
+  config: {
+    encoding: 'LINEAR16',
+    sampleRateHertz: 16000,
+    languageCode: SOURCE_LANGUAGE_CODE,
+    enableAutomaticPunctuation: true,
+    model: 'default'
+  },
+  interimResults: false
+});
 
   return stream;
 }
