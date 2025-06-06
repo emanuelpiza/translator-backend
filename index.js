@@ -2,6 +2,7 @@ const { SpeechClient } = require('@google-cloud/speech');
 const { TextToSpeechClient } = require('@google-cloud/text-to-speech');
 const { Translate } = require('@google-cloud/translate').v2;
 const { WebSocketServer } = require('ws');
+const { PassThrough } = require('stream');
 const http = require('http');
 
 const SOURCE_LANGUAGE_CODE = 'en-US';
@@ -20,17 +21,14 @@ wss.on('connection', ws => {
     const msg = JSON.parse(message);
 
     switch (msg.event) {
-        case 'start':
-            console.log(`🎙️ Starting stream for target language: ${msg.targetLanguage}`);
-          
-            if (recognizeStream) {
-              recognizeStream.destroy();
-              recognizeStream = null;
-            }
-          
-            recognizeStream = createRecognitionStream(ws, msg.targetLanguage);
-            break;
-
+      case 'start':
+        console.log(`🎙️ Starting stream for target language: ${msg.targetLanguage}`);
+        if (recognizeStream) {
+          recognizeStream.destroy();
+          recognizeStream = null;
+        }
+        recognizeStream = createRecognitionStream(ws, msg.targetLanguage);
+        break;
 
       case 'audio':
         try {
@@ -72,12 +70,26 @@ wss.on('connection', ws => {
   });
 });
 
-const {PassThrough} = require('stream');
+// 🧠 Helper: limpa o código do idioma
+function normalizeLangCode(lang) {
+  return lang.split('-')[0];
+}
+
+// 🧠 Helper: mapeia para código aceito pelo TTS
+function getTTSVoiceCode(lang) {
+  const map = {
+    'vi': 'vi-VN',
+    'es': 'es-ES',
+    'fr': 'fr-FR',
+    'ja': 'ja-JP',
+    'ko': 'ko-KR',
+    'de': 'de-DE',
+  };
+  return map[normalizeLangCode(lang)] || 'en-US';
+}
 
 function createRecognitionStream(ws, targetLanguage) {
   const audioStream = new PassThrough();
-  console.log('🚀 createRecognitionStream - Target language:', targetLanguage);
-
 
   const request = {
     config: {
@@ -116,16 +128,15 @@ function createRecognitionStream(ws, targetLanguage) {
     });
 
   audioStream.pipe(stream);
-
   return audioStream;
 }
 
-
 async function synthesizeSpeech(text, languageCode) {
   try {
+    const ttsLang = getTTSVoiceCode(languageCode);
     const request = {
       input: { text },
-      voice: { languageCode, ssmlGender: 'NEUTRAL' },
+      voice: { languageCode: ttsLang, ssmlGender: 'NEUTRAL' },
       audioConfig: { audioEncoding: 'MP3', sampleRateHertz: 24000 },
     };
     const [response] = await ttsClient.synthesizeSpeech(request);
@@ -137,9 +148,10 @@ async function synthesizeSpeech(text, languageCode) {
 }
 
 async function translateText(text, targetLanguage) {
-  console.log('🧠 Translating:', text, '=>', targetLanguage);
+  const cleanLang = normalizeLangCode(targetLanguage);
+  console.log('🧠 Translating:', text, '=>', cleanLang);
   try {
-    const [translation] = await translateClient.translate(text, targetLanguage);
+    const [translation] = await translateClient.translate(text, cleanLang);
     return translation;
   } catch (err) {
     console.error('Translation Error:', err);
