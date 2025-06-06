@@ -12,53 +12,62 @@ const translateClient = new Translate();
 
 const wss = new WebSocketServer({ noServer: true });
 
-wss.on('connection', ws => {
-  console.log('Client connected');
-  let recognizeStream = null;
-
-  ws.on('message', async (message) => {
+ws.on('message', async (message) => {
   const msg = JSON.parse(message);
 
   switch (msg.event) {
     case 'start':
       console.log(`🎙️ Starting stream for target language: ${msg.targetLanguage}`);
       if (recognizeStream && !recognizeStream.destroyed) {
-        recognizeStream.end();
-        recognizeStream.destroy();
+        try {
+          recognizeStream.end();
+          recognizeStream.destroy();
+        } catch (err) {
+          console.warn('⚠️ Error while ending previous stream:', err.message);
+        }
       }
       recognizeStream = createRecognitionStream(ws, msg.targetLanguage);
       break;
 
     case 'audio':
       try {
-        if (recognizeStream && !recognizeStream.destroyed) {
+        if (recognizeStream && !recognizeStream.destroyed && typeof msg.data === 'object') {
           recognizeStream.write(msg.data);
         } else {
-          console.warn('⚠️ Tried to write to a destroyed stream.');
+          console.warn('⚠️ Tried to write to a destroyed or nonexistent stream.');
         }
       } catch (err) {
         console.error('❌ Error writing to recognition stream:', err.message);
-        console.error(err);
       }
       break;
 
     case 'stop':
       console.log('🛑 Stopping stream');
       if (recognizeStream && !recognizeStream.destroyed) {
-        recognizeStream.end();
-        recognizeStream.destroy();
+        try {
+          recognizeStream.end();
+          recognizeStream.destroy();
+        } catch (err) {
+          console.warn('⚠️ Error during stream stop:', err.message);
+        }
       }
       recognizeStream = null;
       break;
   }
 });
 
-
-  ws.on('close', () => {
-    console.log('Client disconnected');
-    if (recognizeStream) recognizeStream.end();
-  });
+ws.on('close', () => {
+  console.log('Client disconnected');
+  if (recognizeStream && !recognizeStream.destroyed) {
+    try {
+      recognizeStream.end();
+      recognizeStream.destroy();
+    } catch (err) {
+      console.warn('⚠️ Error during stream close:', err.message);
+    }
+  }
 });
+
 
 function createRecognitionStream(ws, targetLanguage) {
   const request = {
