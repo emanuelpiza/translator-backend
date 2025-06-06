@@ -27,8 +27,17 @@ wss.on('connection', ws => {
         break;
 
       case 'audio':
-        if (recognizeStream) recognizeStream.write(msg.data);
+        try {
+          if (recognizeStream && !recognizeStream.destroyed) {
+            recognizeStream.write(msg.data);
+          } else {
+            console.warn('⚠️ Tried to write to destroyed stream.');
+          }
+        } catch (err) {
+          console.error('❌ Error writing to recognition stream:', err.message);
+        }
         break;
+
 
       case 'stop':
         console.log('Stopping stream');
