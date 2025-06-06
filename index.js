@@ -1,16 +1,17 @@
 const { SpeechClient } = require('@google-cloud/speech');
 const { TextToSpeechClient } = require('@google-cloud/text-to-speech');
+const { Translate } = require('@google-cloud/translate').v2;
 const { WebSocketServer } = require('ws');
 const http = require('http');
 
-// --- CONFIGURATION ---
 const SOURCE_LANGUAGE_CODE = 'en-US';
 
 const speechClient = new SpeechClient();
 const ttsClient = new TextToSpeechClient();
+const translateClient = new Translate();
+
 const wss = new WebSocketServer({ noServer: true });
 
-// --- WebSocket Connection Handling ---
 wss.on('connection', ws => {
   console.log('Client connected');
   let recognizeStream = null;
@@ -43,7 +44,6 @@ wss.on('connection', ws => {
   });
 });
 
-// --- Core Speech Recognition and Translation Stream ---
 function createRecognitionStream(ws, targetLanguage) {
   const request = {
     config: {
@@ -51,11 +51,7 @@ function createRecognitionStream(ws, targetLanguage) {
       sampleRateHertz: 16000,
       languageCode: SOURCE_LANGUAGE_CODE,
       enableAutomaticPunctuation: true,
-      model: 'long',
-      translationConfig: {
-        targetLanguageCodes: [targetLanguage],
-        model: "nmt/global"
-      },
+      model: 'default'
     },
     interimResults: false,
   };
@@ -69,8 +65,9 @@ function createRecognitionStream(ws, targetLanguage) {
     .on('data', async (data) => {
       if (data.results[0] && data.results[0].isFinal) {
         const transcript = data.results[0].alternatives[0].transcript;
-        const translation = data.results[0].translation;
         console.log(`Transcript: ${transcript}`);
+
+        const translation = await translateText(transcript, targetLanguage);
         console.log(`Translation: ${translation}`);
 
         const sourceAudio = await synthesizeSpeech(transcript, SOURCE_LANGUAGE_CODE);
@@ -90,7 +87,6 @@ function createRecognitionStream(ws, targetLanguage) {
   return stream;
 }
 
-// --- Text-to-Speech Helper Function ---
 async function synthesizeSpeech(text, languageCode) {
   try {
     const request = {
@@ -106,7 +102,16 @@ async function synthesizeSpeech(text, languageCode) {
   }
 }
 
-// --- Minimal HTTP Server to Bind a Port (Render.com Requirement) ---
+async function translateText(text, targetLanguage) {
+  try {
+    const [translation] = await translateClient.translate(text, targetLanguage);
+    return translation;
+  } catch (err) {
+    console.error('Translation Error:', err);
+    return text;
+  }
+}
+
 const server = http.createServer((req, res) => {
   res.writeHead(200);
   res.end("Translator backend is running.");
