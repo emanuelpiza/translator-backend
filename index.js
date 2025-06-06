@@ -5,8 +5,6 @@ const { WebSocketServer } = require('ws');
 const { PassThrough } = require('stream');
 const http = require('http');
 
-const SOURCE_LANGUAGE_CODE = 'en-US';
-
 const speechClient = new SpeechClient();
 const ttsClient = new TextToSpeechClient();
 const translateClient = new Translate();
@@ -70,6 +68,11 @@ wss.on('connection', ws => {
   });
 });
 
+// 🌐 Define dinamicamente o idioma de origem com base no destino
+function getSourceLanguage(targetLang) {
+  return normalizeLangCode(targetLang) === 'en' ? 'vi-VN' : 'en-US';
+}
+
 // 🧠 Helper: limpa o código do idioma
 function normalizeLangCode(lang) {
   return lang.split('-')[0];
@@ -90,12 +93,15 @@ function getTTSVoiceCode(lang) {
 
 function createRecognitionStream(ws, targetLanguage) {
   const audioStream = new PassThrough();
+  const sourceLanguage = getSourceLanguage(targetLanguage);
+
+  console.log(`🧠 Recognizing from ${sourceLanguage} → Translating to ${targetLanguage}`);
 
   const request = {
     config: {
       encoding: 'LINEAR16',
       sampleRateHertz: 16000,
-      languageCode: SOURCE_LANGUAGE_CODE,
+      languageCode: sourceLanguage,
       enableAutomaticPunctuation: true,
       model: 'default',
     },
@@ -179,4 +185,3 @@ console.log('🚀 About to start server...');
 server.listen(PORT, () => {
   console.log(`✅ Server listening on port ${PORT}`);
 });
-
