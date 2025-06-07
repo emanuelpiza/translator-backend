@@ -1,21 +1,17 @@
 {
-  "name": "translator-backend-openai",
+  "name": "translator-backend-google",
   "version": "1.0.0",
-  "description": "Real-time translator using OpenAI",
+  "description": "Real-time translator using Google Cloud APIs",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
+    "start": "node index.js"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "dotenv": "^16.3.1",
-    "openai": "^4.20.1",
-    "uuid": "^9.0.1",
-    "ws": "^8.14.2"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.2"
+    "@google-cloud/speech": "^6.5.0",
+    "@google-cloud/text-to-speech": "^5.2.0",
+    "@google-cloud/translate": "^8.2.0",
+    "ws": "^8.17.0"
   }
 }
