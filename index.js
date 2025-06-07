@@ -1,109 +1,87 @@
-// index.js
 
+const { SpeechClient } = require('@google-cloud/speech');
+const { TextToSpeechClient } = require('@google-cloud/text-to-speech');
+const { Translate } = require('@google-cloud/translate').v2;
 const { WebSocketServer } = require('ws');
 const http = require('http');
-const OpenAI = require('openai');
-const fs = require('fs');
-const path = require('path');
-const { v4: uuidv4 } = require('uuid');
 
-// Ensure you have OPENAI_API_KEY in your .env file or environment variables
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Certifique-se de que as suas credenciais do Google Cloud estão configuradas
+// no ambiente (variável de ambiente GOOGLE_APPLICATION_CREDENTIALS)
+const speechClient = new SpeechClient();
+const ttsClient = new TextToSpeechClient();
+const translateClient = new Translate();
 
 const wss = new WebSocketServer({ noServer: true });
 
-// Create a temp directory for audio files if it doesn't exist
-const tempDir = path.join(__dirname, 'temp');
-if (!fs.existsSync(tempDir)) {
-  fs.mkdirSync(tempDir);
-}
-
 wss.on('connection', ws => {
-  console.log('Client connected');
-
-  // When a message is received (in this case, the audio blob)
+  console.log('Client on');
+  
   ws.on('message', async message => {
-    const tempFilePath = path.join(tempDir, `${uuidv4()}.webm`);
-    
     try {
-      // 1. Save the received audio blob to a temporary file
-      fs.writeFileSync(tempFilePath, message);
+        const msg = JSON.parse(message);
 
-      // 2. Transcribe audio using OpenAI Whisper API
-      console.log(`Transcribing audio: ${tempFilePath}`);
-      const transcription = await openai.audio.transcriptions.create({
-        file: fs.createReadStream(tempFilePath),
-        model: 'whisper-1',
-        language: 'en', // Providing hints can improve accuracy
-        prompt: "This is a conversation between a Vietnamese and an English speaker." // Prompt can guide the model
-      });
-      const transcript = transcription.text;
-      console.log('🗣️ Transcript:', transcript);
+        // Processa apenas mensagens de evento de 'áudio'
+        if (msg.event === 'audio' && msg.audioData && msg.targetLang) {
+            const { audioData, targetLang } = msg;
 
-      // 3. Detect language and translate using GPT
-      console.log('Translating text...');
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini", // A fast and capable model
-        messages: [
-          {
-            role: "system",
-            content: "You are a language detection and translation expert. First, detect if the following text is primarily 'Vietnamese' or 'English'. Then, translate it to the other language. Your response must be only the translated text, with no explanations or extra phrases."
-          },
-          {
-            role: "user",
-            content: transcript
-          }
-        ],
-        temperature: 0, // For deterministic translation
-      });
+            // Define os idiomas de origem e destino
+            const sourceLang = targetLang === 'en' ? 'vi-VN' : 'en-US';
+            console.log(`Translating from ${sourceLang} to ${targetLang}`);
 
-      const translated = completion.choices[0].message.content.trim();
-      const targetLang = (translated.match(/[\u0041-\u005A\u0061-\u007A]/)) ? 'en-US' : 'vi-VN';
-      console.log(`✅ Translated (${targetLang}):`, translated);
+            // 1. Transcrever áudio com a Google Speech-to-Text
+            const [response] = await speechClient.recognize({
+                config: {
+                    encoding: 'WEBM_OPUS',
+                    sampleRateHertz: 48000, // O webm gravado no browser geralmente tem esta taxa
+                    languageCode: sourceLang,
+                },
+                audio: {
+                    content: audioData,
+                },
+            });
 
-      // 4. Synthesize speech using OpenAI TTS API
-      console.log('Synthesizing audio...');
-      const ttsResponse = await openai.audio.speech.create({
-        model: "tts-1",
-        voice: targetLang === 'vi-VN' ? "alloy" : "nova", // Choose voices
-        input: translated,
-        response_format: "mp3",
-      });
-      
-      // 5. Stream the audio back to the client
-      const audioBuffer = Buffer.from(await ttsResponse.arrayBuffer());
-      ws.send(JSON.stringify({
-        event: 'audio',
-        data: audioBuffer.toString('base64')
-      }));
+            const transcript = response.results?.[0]?.alternatives?.[0]?.transcript || '';
+            if (!transcript) {
+                throw new Error('Audio could not be transcribed.');
+            }
+            console.log(`🗣️ Transcrição (${sourceLang}):`, transcript);
 
+            // 2. Traduzir texto com a Google Translate
+            const [translated] = await translateClient.translate(transcript, targetLang);
+            console.log(`✅ Traduzido (${targetLang}):`, translated);
+            
+            // 3. Sintetizar voz com a Google Text-to-Speech
+            const voiceConfig = targetLang === 'vi' 
+                ? { languageCode: 'vi-VN', name: 'vi-VN-Wavenet-D' } // Voz masculina para vietnamita
+                : { languageCode: 'en-US', name: 'en-US-Wavenet-D' }; // Voz masculina para inglês
+            
+            const [ttsRes] = await ttsClient.synthesizeSpeech({
+                input: { text: translated },
+                voice: voiceConfig,
+                audioConfig: { audioEncoding: 'MP3' },
+            });
+            
+            // 4. Enviar o áudio de volta para o cliente
+            ws.send(JSON.stringify({ 
+                event: 'audio', 
+                data: ttsRes.audioContent.toString('base64') 
+            }));
+        }
     } catch (err) {
-      console.error('⚠️ Error processing audio:', err);
-      // Let the client know something went wrong
-      ws.send(JSON.stringify({
-        event: 'error',
-        message: err.message || 'Failed to process audio.'
-      }));
-    } finally {
-      // 6. Clean up the temporary file
-      if (fs.existsSync(tempFilePath)) {
-        fs.unlinkSync(tempFilePath);
-        console.log(`Cleaned up: ${tempFilePath}`);
-      }
+      console.error('⚠️ Erro:', err);
+      ws.send(JSON.stringify({ event: 'error', message: err.message || 'Server error.' }));
     }
   });
 
   ws.on('close', () => {
-    console.log('Client disconnected');
+    console.log('Client off');
   });
 });
 
-// Standard HTTP server setup to handle WebSocket upgrades
+// Servidor HTTP padrão para lidar com upgrades de WebSocket
 const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Translator backend with OpenAI is running');
+  res.writeHead(200, {'Content-Type': 'text/plain'});
+  res.end('Translator Backend with Google API is working.');
 });
 
 server.on('upgrade', (req, socket, head) => {
@@ -114,5 +92,5 @@ server.on('upgrade', (req, socket, head) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`✅ Server listening on port ${PORT}`);
+  console.log(`✅ Server listening port ${PORT}`);
 });
