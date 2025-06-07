@@ -14,7 +14,6 @@ const wss = new WebSocketServer({ noServer: true });
 wss.on('connection', ws => {
   console.log('Client connected');
 
-  let recognizeStream;
   let buffers = [];
 
   ws.on('message', async message => {
@@ -25,8 +24,7 @@ wss.on('connection', ws => {
     }
 
     if (msg.event === 'audio') {
-      const buffer = Buffer.from(msg.data, 'base64');
-      buffers.push(buffer);
+      buffers.push(Buffer.from(msg.data, 'base64'));
     }
 
     if (msg.event === 'stop') {
@@ -37,24 +35,33 @@ wss.on('connection', ws => {
           config: {
             encoding: 'WEBM_OPUS',
             sampleRateHertz: 48000,
-            languageCode: 'en-US', // initially assume English
-            alternativeLanguageCodes: ['vi-VN']
+            languageCode: 'en-US',
+            alternativeLanguageCodes: ['vi-VN'],
+            enableAutomaticPunctuation: true,
           },
           audio: {
-            content: fullAudio.toString('base64')
-          }
+            content: fullAudio.toString('base64'),
+          },
         });
 
         const transcript = response.results?.[0]?.alternatives?.[0]?.transcript || '';
-        const detectedLang = response.results?.[0]?.languageCode || 'en';
-        console.log(`🗣 Detected (${detectedLang}):`, transcript);
+        console.log(`🗣 Transcribed: ${transcript}`);
 
+        // Detect language using Translate API
+        const [detection] = await translateClient.detect(transcript);
+        const detectedLang = detection.language || 'en';
+        console.log(`🔍 Detected Language: ${detectedLang}`);
+
+        // Define target language
         const targetLang = detectedLang.startsWith('vi') ? 'en' : 'vi';
+        const ttsLangCode = targetLang === 'vi' ? 'vi-VN' : 'en-US';
+
         const [translated] = await translateClient.translate(transcript, targetLang);
+        console.log(`🌐 Translated: ${translated}`);
 
         const [ttsRes] = await ttsClient.synthesizeSpeech({
           input: { text: translated },
-          voice: { languageCode: targetLang === 'vi' ? 'vi-VN' : 'en-US', ssmlGender: 'NEUTRAL' },
+          voice: { languageCode: ttsLangCode, ssmlGender: 'NEUTRAL' },
           audioConfig: { audioEncoding: 'MP3' }
         });
 
