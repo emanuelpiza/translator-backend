@@ -41,6 +41,7 @@ wss.on('connection', ws => {
                     encoding: 'WEBM_OPUS',
                     sampleRateHertz: 48000,
                     languageCode: sourceLang,
+                    audioChannelCount: 1
                 },
                 audio: { content: audioData },
             });
