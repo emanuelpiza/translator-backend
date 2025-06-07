@@ -1,67 +1,96 @@
-const { SpeechClient } = require('@google-cloud/speech');
-const { TextToSpeechClient } = require('@google-cloud/text-to-speech');
-const { Translate } = require('@google-cloud/translate').v2;
-const { WebSocketServer } = require('ws');
-const { PassThrough } = require('stream');
-const http = require('http');
+// index.js
 
-const speechClient = new SpeechClient();
-const ttsClient = new TextToSpeechClient();
-const translateClient = new Translate();
+const { WebSocketServer } = require('ws');
+const http = require('http');
+const OpenAI = require('openai');
+const fs = require('fs');
+const path = require('path');
+const { v4: uuidv4 } = require('uuid');
+
+// Ensure you have OPENAI_API_KEY in your .env file or environment variables
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 const wss = new WebSocketServer({ noServer: true });
+
+// Create a temp directory for audio files if it doesn't exist
+const tempDir = path.join(__dirname, 'temp');
+if (!fs.existsSync(tempDir)) {
+  fs.mkdirSync(tempDir);
+}
 
 wss.on('connection', ws => {
   console.log('Client connected');
 
-  let recognizeStream;
-  let buffers = [];
-
+  // When a message is received (in this case, the audio blob)
   ws.on('message', async message => {
-    const msg = JSON.parse(message);
+    const tempFilePath = path.join(tempDir, `${uuidv4()}.webm`);
+    
+    try {
+      // 1. Save the received audio blob to a temporary file
+      fs.writeFileSync(tempFilePath, message);
 
-    if (msg.event === 'start-auto') {
-      buffers = [];
-    }
+      // 2. Transcribe audio using OpenAI Whisper API
+      console.log(`Transcribing audio: ${tempFilePath}`);
+      const transcription = await openai.audio.transcriptions.create({
+        file: fs.createReadStream(tempFilePath),
+        model: 'whisper-1',
+        language: 'en', // Providing hints can improve accuracy
+        prompt: "This is a conversation between a Vietnamese and an English speaker." // Prompt can guide the model
+      });
+      const transcript = transcription.text;
+      console.log('🗣️ Transcript:', transcript);
 
-    if (msg.event === 'audio') {
-      const buffer = Buffer.from(msg.data, 'base64');
-      buffers.push(buffer);
-    }
-
-    if (msg.event === 'stop') {
-      const fullAudio = Buffer.concat(buffers);
-
-      try {
-        const [response] = await speechClient.recognize({
-          config: {
-            encoding: 'WEBM_OPUS',
-            sampleRateHertz: 48000,
-            languageCode: 'en-US', // initially assume English
-            alternativeLanguageCodes: ['vi-VN']
+      // 3. Detect language and translate using GPT
+      console.log('Translating text...');
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini", // A fast and capable model
+        messages: [
+          {
+            role: "system",
+            content: "You are a language detection and translation expert. First, detect if the following text is primarily 'Vietnamese' or 'English'. Then, translate it to the other language. Your response must be only the translated text, with no explanations or extra phrases."
           },
-          audio: {
-            content: fullAudio.toString('base64')
+          {
+            role: "user",
+            content: transcript
           }
-        });
+        ],
+        temperature: 0, // For deterministic translation
+      });
 
-        const transcript = response.results?.[0]?.alternatives?.[0]?.transcript || '';
-        const detectedLang = response.results?.[0]?.languageCode || 'en';
-        console.log(`🗣 Detected (${detectedLang}):`, transcript);
+      const translated = completion.choices[0].message.content.trim();
+      const targetLang = (translated.match(/[\u0041-\u005A\u0061-\u007A]/)) ? 'en-US' : 'vi-VN';
+      console.log(`✅ Translated (${targetLang}):`, translated);
 
-        const targetLang = detectedLang.startsWith('vi') ? 'en' : 'vi';
-        const [translated] = await translateClient.translate(transcript, targetLang);
+      // 4. Synthesize speech using OpenAI TTS API
+      console.log('Synthesizing audio...');
+      const ttsResponse = await openai.audio.speech.create({
+        model: "tts-1",
+        voice: targetLang === 'vi-VN' ? "alloy" : "nova", // Choose voices
+        input: translated,
+        response_format: "mp3",
+      });
+      
+      // 5. Stream the audio back to the client
+      const audioBuffer = Buffer.from(await ttsResponse.arrayBuffer());
+      ws.send(JSON.stringify({
+        event: 'audio',
+        data: audioBuffer.toString('base64')
+      }));
 
-        const [ttsRes] = await ttsClient.synthesizeSpeech({
-          input: { text: translated },
-          voice: { languageCode: targetLang === 'vi' ? 'vi-VN' : 'en-US', ssmlGender: 'NEUTRAL' },
-          audioConfig: { audioEncoding: 'MP3' }
-        });
-
-        ws.send(JSON.stringify({ event: 'audio', data: ttsRes.audioContent.toString('base64') }));
-      } catch (err) {
-        console.error('⚠️ Error:', err);
-        ws.send(JSON.stringify({ event: 'error', message: err.message }));
+    } catch (err) {
+      console.error('⚠️ Error processing audio:', err);
+      // Let the client know something went wrong
+      ws.send(JSON.stringify({
+        event: 'error',
+        message: err.message || 'Failed to process audio.'
+      }));
+    } finally {
+      // 6. Clean up the temporary file
+      if (fs.existsSync(tempFilePath)) {
+        fs.unlinkSync(tempFilePath);
+        console.log(`Cleaned up: ${tempFilePath}`);
       }
     }
   });
@@ -71,16 +100,13 @@ wss.on('connection', ws => {
   });
 });
 
+// Standard HTTP server setup to handle WebSocket upgrades
 const server = http.createServer((req, res) => {
-  res.writeHead(200);
-  res.end('Translator backend is running');
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Translator backend with OpenAI is running');
 });
 
 server.on('upgrade', (req, socket, head) => {
-  if (req.headers.upgrade !== 'websocket') {
-    socket.destroy();
-    return;
-  }
   wss.handleUpgrade(req, socket, head, ws => {
     wss.emit('connection', ws, req);
   });
