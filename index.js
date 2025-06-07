@@ -1,4 +1,3 @@
-
 const { SpeechClient } = require('@google-cloud/speech');
 const { TextToSpeechClient } = require('@google-cloud/text-to-speech');
 const { Translate } = require('@google-cloud/translate').v2;
