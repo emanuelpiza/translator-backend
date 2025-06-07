@@ -4,13 +4,23 @@ const { Translate } = require('@google-cloud/translate').v2;
 const { WebSocketServer } = require('ws');
 const http = require('http');
 
-// Certifique-se de que as suas credenciais do Google Cloud estão configuradas
-// no ambiente (variável de ambiente GOOGLE_APPLICATION_CREDENTIALS)
+// Google Cloud clients
 const speechClient = new SpeechClient();
 const ttsClient = new TextToSpeechClient();
 const translateClient = new Translate();
 
 const wss = new WebSocketServer({ noServer: true });
+
+// 🔹 Filler word remover
+const fillerWords = [
+  "uh", "um", "like", "you know", "so", "actually",
+  "basically", "right", "i mean", "well", "okay", "sort of"
+];
+
+function cleanTranscript(text) {
+  const pattern = new RegExp(`\\b(${fillerWords.join("|")})\\b`, "gi");
+  return text.replace(pattern, "").replace(/\s{2,}/g, " ").trim();
+}
 
 wss.on('connection', ws => {
   console.log('Client on');
@@ -19,40 +29,37 @@ wss.on('connection', ws => {
     try {
         const msg = JSON.parse(message);
 
-        // Processa apenas mensagens de evento de 'áudio'
         if (msg.event === 'audio' && msg.audioData && msg.targetLang) {
             const { audioData, targetLang } = msg;
 
-            // Define os idiomas de origem e destino
             const sourceLang = targetLang === 'en' ? 'vi-VN' : 'en-US';
-            console.log(`Translating from ${sourceLang} to ${targetLang}`);
+            console.log(`🌍 Translating from ${sourceLang} to ${targetLang}`);
 
-            // 1. Transcrever áudio com a Google Speech-to-Text
+            // 1. Transcrição
             const [response] = await speechClient.recognize({
                 config: {
                     encoding: 'WEBM_OPUS',
-                    sampleRateHertz: 48000, // O webm gravado no browser geralmente tem esta taxa
+                    sampleRateHertz: 48000,
                     languageCode: sourceLang,
                 },
-                audio: {
-                    content: audioData,
-                },
+                audio: { content: audioData },
             });
 
-            const transcript = response.results?.[0]?.alternatives?.[0]?.transcript || '';
-            if (!transcript) {
-                throw new Error('Audio could not be transcribed.');
-            }
-            console.log(`🗣️ Transcrição (${sourceLang}):`, transcript);
+            const rawTranscript = response.results?.[0]?.alternatives?.[0]?.transcript || '';
+            if (!rawTranscript) throw new Error('Audio could not be transcribed.');
+            
+            const cleanedTranscript = cleanTranscript(rawTranscript);
+            console.log(`🗣️ Transcrição (raw):`, rawTranscript);
+            console.log(`🧹 Transcrição (clean):`, cleanedTranscript);
 
-            // 2. Traduzir texto com a Google Translate
-            const [translated] = await translateClient.translate(transcript, targetLang);
+            // 2. Tradução
+            const [translated] = await translateClient.translate(cleanedTranscript, targetLang);
             console.log(`✅ Traduzido (${targetLang}):`, translated);
             
-            // 3. Sintetizar voz com a Google Text-to-Speech
+            // 3. Síntese de voz
             const voiceConfig = targetLang === 'vi' 
-                ? { languageCode: 'vi-VN', name: 'vi-VN-Wavenet-D' } // Voz masculina para vietnamita
-                : { languageCode: 'en-US', name: 'en-US-Wavenet-D' }; // Voz masculina para inglês
+                ? { languageCode: 'vi-VN', name: 'vi-VN-Wavenet-D' }
+                : { languageCode: 'en-US', name: 'en-US-Wavenet-D' };
             
             const [ttsRes] = await ttsClient.synthesizeSpeech({
                 input: { text: translated },
@@ -60,7 +67,7 @@ wss.on('connection', ws => {
                 audioConfig: { audioEncoding: 'MP3' },
             });
             
-            // 4. Enviar o áudio de volta para o cliente
+            // 4. Resposta ao cliente
             ws.send(JSON.stringify({ 
                 event: 'audio', 
                 data: ttsRes.audioContent.toString('base64') 
@@ -72,12 +79,10 @@ wss.on('connection', ws => {
     }
   });
 
-  ws.on('close', () => {
-    console.log('Client off');
-  });
+  ws.on('close', () => console.log('Client off'));
 });
 
-// Servidor HTTP padrão para lidar com upgrades de WebSocket
+// Servidor HTTP padrão
 const server = http.createServer((req, res) => {
   res.writeHead(200, {'Content-Type': 'text/plain'});
   res.end('Translator Backend with Google API is working.');
@@ -91,5 +96,5 @@ server.on('upgrade', (req, socket, head) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`✅ Server listening port ${PORT}`);
+  console.log(`✅ Server listening on port ${PORT}`);
 });
